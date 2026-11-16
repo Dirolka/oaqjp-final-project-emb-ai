@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import io
+import pexpect
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / 'evidence'
@@ -11,12 +13,18 @@ OUT = ROOT / 'evidence'
 
 def shell_session(name, commands, directory):
     """Run an actual interactive Python interpreter and preserve its output."""
-    result = subprocess.run(
-        [sys.executable, '-i'], input='\n'.join(commands) + '\nexit()\n',
-        cwd=directory, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        env={**os.environ, 'PYTHONSTARTUP': '', 'PYTHON_COLORS': '0'}, check=True,
-    )
-    transcript = '$ python3\n' + result.stdout
+    log = io.StringIO()
+    child = pexpect.spawn(sys.executable, ['-i'], cwd=str(directory), encoding='utf-8',
+                          timeout=90, env={**os.environ, 'PYTHONSTARTUP': '', 'PYTHON_COLORS': '0'})
+    child.logfile_read = log
+    child.expect('>>> ')
+    for command in commands:
+        child.sendline(command)
+        child.expect('>>> ')
+    child.sendline('exit()')
+    child.expect(pexpect.EOF)
+    child.close()
+    transcript = '$ python3\n' + log.getvalue().replace('\r\n', '\n')
     (OUT / name).write_text(transcript)
     print('\n=== ' + name + ' ===\n' + transcript, flush=True)
     if 'Traceback (most recent call last)' in transcript:
